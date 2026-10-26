@@ -38,6 +38,7 @@ public class FileTenantDirectory implements TenantDirectory {
     private final LongSupplier clockMillis;
     private final ObjectMapper mapper = new ObjectMapper();
     private volatile Map<String, TenantInfo> byId = Map.of();
+    private volatile Map<String, TenantInfo> byIssuer = Map.of();
     private volatile long loadedMtime = Long.MIN_VALUE;
     /** Last moment the snapshot was known to match the file; Long.MIN_VALUE until the first successful load. */
     private volatile long lastKnownCurrentMillis = Long.MIN_VALUE;
@@ -68,15 +69,68 @@ public class FileTenantDirectory implements TenantDirectory {
     @Override
     public Optional<TenantInfo> findByTenantId(String tenantId) {
         reloadIfChanged();
+        if (!snapshotIsCurrent()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(tenantId == null ? null : byId.get(tenantId));
+    }
+
+    @Override
+    public Optional<TenantInfo> findByIssuer(String issuer) {
+        reloadIfChanged();
+        if (!snapshotIsCurrent()) {
+            return Optional.empty();
+        }
+        String key = normalizeIssuer(issuer);
+        return Optional.ofNullable(key == null ? null : byIssuer.get(key));
+    }
+
+    /** True while the snapshot is known to match the file (see the failure policy above). */
+    private boolean snapshotIsCurrent() {
         long last = lastKnownCurrentMillis;
         if (last == Long.MIN_VALUE || clockMillis.getAsLong() - last > maxStaleness.toMillis()) {
             if (last != Long.MIN_VALUE) {
                 log.error("Tenant registry snapshot is older than {} and the file cannot be re-read: treating every tenant as unknown ({})",
                         maxStaleness, file);
             }
-            return Optional.empty();
+            return false;
         }
-        return Optional.ofNullable(tenantId == null ? null : byId.get(tenantId));
+        return true;
+    }
+
+    /** Trim and drop trailing slashes, so "http://kc/realms/a/" and "http://kc/realms/a" are one issuer. Null if blank. */
+    static String normalizeIssuer(String issuer) {
+        if (issuer == null) {
+            return null;
+        }
+        String s = issuer.trim();
+        while (s.endsWith("/")) {
+            s = s.substring(0, s.length() - 1);
+        }
+        return s.isEmpty() ? null : s;
+    }
+
+    /**
+     * issuer -> tenant. An issuer claimed by two tenants is left out entirely (fail closed): neither tenant can then be
+     * reached through it, instead of one of them silently winning.
+     */
+    static Map<String, TenantInfo> indexByIssuer(Map<String, TenantInfo> tenants) {
+        Map<String, TenantInfo> index = new HashMap<>();
+        Set<String> ambiguous = new LinkedHashSet<>();
+        for (TenantInfo t : tenants.values()) {
+            String key = normalizeIssuer(t.issuer());
+            if (key == null) {
+                continue;
+            }
+            if (index.putIfAbsent(key, t) != null) {
+                ambiguous.add(key);
+            }
+        }
+        for (String key : ambiguous) {
+            index.remove(key);
+            log.error("Tenant registry binds issuer {} to more than one tenant: that issuer is not trusted", key);
+        }
+        return index;
     }
 
     private synchronized void reloadIfChanged() {
@@ -92,7 +146,9 @@ public class FileTenantDirectory implements TenantDirectory {
             return;
         }
         try {
-            byId = parse(mapper.readTree(Files.readAllBytes(file)));
+            Map<String, TenantInfo> parsed = parse(mapper.readTree(Files.readAllBytes(file)));
+            byIssuer = indexByIssuer(parsed);
+            byId = parsed;
             loadedMtime = mtime;
             lastKnownCurrentMillis = clockMillis.getAsLong();
             log.info("Tenant registry loaded: {} tenants from {}", byId.size(), file);
@@ -115,7 +171,8 @@ public class FileTenantDirectory implements TenantDirectory {
                     t.path("ssoEnabled").asBoolean(false),
                     domains,
                     t.path("groupsDelegatedAdmin").isTextual() && !t.path("groupsDelegatedAdmin").asText().isBlank()
-                            ? t.path("groupsDelegatedAdmin").asText().trim().toLowerCase(Locale.ROOT) : null);
+                            ? t.path("groupsDelegatedAdmin").asText().trim().toLowerCase(Locale.ROOT) : null,
+                    t.path("issuer").isTextual() ? normalizeIssuer(t.path("issuer").asText()) : null);
             index.put(info.tenantId(), info);
         }
         return index;

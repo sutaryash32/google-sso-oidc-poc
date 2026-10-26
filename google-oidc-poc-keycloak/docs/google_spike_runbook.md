@@ -1,3 +1,5 @@
+> **Scope note.** This runbook exercises the earlier single-realm spike (realm `spike-google` on the test harness). The real-Google behaviour it asks you to observe (`hd`, aliases, secondary domains) is still the open question for the hub-and-spoke design; the foreign-Workspace test there is the same kind of sign-in. See [hub_and_spoke_poc_plan.md](hub_and_spoke_poc_plan.md).
+
 # Real Google spike: runbook
 
 Purpose: replace "our handling of claims" with "Google's actual claim behavior". Everything below the sign-in itself is

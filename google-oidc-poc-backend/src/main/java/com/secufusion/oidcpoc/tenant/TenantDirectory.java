@@ -6,4 +6,12 @@ import java.util.Optional;
 public interface TenantDirectory {
 
     Optional<TenantInfo> findByTenantId(String tenantId);
+
+    /**
+     * The tenant whose own Keycloak realm issues tokens with this issuer URL. Empty if no tenant is bound to it, or if the
+     * registry binds it to more than one tenant (ambiguous, so unusable). Used to decide which issuers are trusted at all.
+     */
+    default Optional<TenantInfo> findByIssuer(String issuer) {
+        return Optional.empty();
+    }
 }

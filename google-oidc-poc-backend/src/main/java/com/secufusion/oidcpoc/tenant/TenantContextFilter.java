@@ -51,6 +51,8 @@ public class TenantContextFilter extends OncePerRequestFilter {
             denial = "tenant_suspended";
         } else if (!tenant.get().ssoEnabled()) {
             denial = "sso_disabled";
+        } else {
+            denial = issuerBinding(ctx, tenant.get());
         }
 
         if (denial != null) {
@@ -67,5 +69,19 @@ public class TenantContextFilter extends OncePerRequestFilter {
         } finally {
             TenantContextHolder.clear();
         }
+    }
+
+    /**
+     * A realm can only speak for its own tenant. The tenant_id claim is written by whoever administers the issuing realm,
+     * so it is not enough on its own: the issuer must be the one the registry binds to that tenant.
+     *   - the issuer is bound to a tenant (hub-and-spoke): that must be the tenant the token claims;
+     *   - the issuer is not bound to anyone (the single legacy issuer): the claimed tenant must not own a realm of its own.
+     */
+    private String issuerBinding(TenantContext ctx, TenantInfo claimed) {
+        Optional<TenantInfo> owner = ctx.issuer() == null ? Optional.empty() : directory.findByIssuer(ctx.issuer());
+        if (owner.isPresent()) {
+            return owner.get().tenantId().equals(claimed.tenantId()) ? null : "issuer_mismatch";
+        }
+        return claimed.issuer() != null ? "issuer_mismatch" : null;
     }
 }

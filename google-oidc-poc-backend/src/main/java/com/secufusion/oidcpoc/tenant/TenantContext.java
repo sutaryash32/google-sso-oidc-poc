@@ -10,7 +10,13 @@ package com.secufusion.oidcpoc.tenant;
  *                     and alias this is the person key. The Keycloak user id ({@code subject}) is NOT stable: it changes
  *                     if the Keycloak user is deleted and re-linked.
  * @param subject      the Keycloak user id; informational only, never a key
+ * @param issuer       the token's issuer (the Keycloak realm that signed it); the filter checks it against the tenant
  */
 public record TenantContext(String tenantId, String tenantDomain, String subject, String idpAlias, String idpSubject,
-                            String email) {
+                            String email, String issuer) {
+
+    public TenantContext(String tenantId, String tenantDomain, String subject, String idpAlias, String idpSubject,
+                         String email) {
+        this(tenantId, tenantDomain, subject, idpAlias, idpSubject, email, null);
+    }
 }

@@ -45,6 +45,13 @@ export const PERSONAS = {
   unmanaged:    person('g-unmanaged', 'ceo@acme.com'),                                 // consumer Google account registered with a corporate address: verified email, NO hd
 };
 
+// --- personas for hub-and-spoke-master-gate-e2e.mjs (tenant yserious.com, plus foreign organisations) ---
+Object.assign(PERSONAS, {
+  ysuser:   person('g-ysuser',   'ysuser@yserious.com',   { hd: 'yserious.com' }),
+  ysunver:  person('g-ysunver',  'ysunver@yserious.com',  { hd: 'yserious.com', email_verified: false }),
+  acmeuser: person('g-acmeuser', 'acmeuser@acme.com',     { hd: 'acme.com' }),
+});
+
 const codes = new Map(); // code -> { persona, nonce, clientId, redirectUri }
 
 const b64 = (buf) => Buffer.from(buf).toString('base64url');

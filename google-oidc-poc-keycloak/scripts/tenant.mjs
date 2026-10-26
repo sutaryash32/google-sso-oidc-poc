@@ -2,7 +2,8 @@
 // reload on change, so no restart is needed).
 //
 //   node scripts/tenant.mjs list
-//   node scripts/tenant.mjs add --id t-acme --name "Acme Corp" --domain acme.com [--domain acme.co.uk] [--groups-admin admin@acme.com] [--sso off]
+//   node scripts/tenant.mjs add --id t-acme --name "Acme Corp" --domain acme.com [--domain acme.co.uk] [--groups-admin admin@acme.com] [--sso off] [--issuer http://localhost:8280/realms/acme]
+//   node scripts/tenant.mjs set-issuer t-acme http://localhost:8280/realms/acme     (the tenant's own Keycloak realm; see setup-tenant.mjs)
 //   node scripts/tenant.mjs add-domain t-acme acme.org
 //   node scripts/tenant.mjs suspend t-acme [--no-revoke]   (also revokes the tenant's Keycloak sessions; see revokeTenantSessions)
 //   node scripts/tenant.mjs activate t-acme
@@ -87,8 +88,18 @@ function checkAdmin(admin, domains) {
 // the tenant's sessions must be revoked too. Needs Keycloak's admin API; if it is unreachable this says so loudly.
 const KC_URL = process.env.KC_URL ?? 'http://localhost:8280';
 const KC_REALM = process.env.KC_REALM ?? 'google-oidc-poc';
+// The realm of an issuer URL such as http://localhost:8280/realms/acme; null if there is none.
+const realmOf = (issuer) => (issuer ? /\/realms\/([^/]+)\/?$/.exec(String(issuer).trim())?.[1] ?? null : null);
+const normIssuer = (u) => String(u).trim().replace(/\/+$/, '');
+function checkIssuer(reg, raw, ownTenantId) {
+  const u = normIssuer(raw);
+  if (!/^https?:\/\/[^/\s]+\/realms\/[^/\s]+$/.test(u)) fail(`"${raw}" is not a Keycloak realm issuer URL (expected e.g. http://localhost:8280/realms/acme)`);
+  const owner = reg.tenants.find((t) => t.issuer && normIssuer(t.issuer) === u);
+  if (owner && owner.tenantId !== ownTenantId) fail(`issuer ${u} already belongs to tenant ${owner.tenantId}`);
+  return u;
+}
 
-async function revokeTenantSessions(tenantId) {
+async function revokeTenantSessions(tenantId, tenant) {
   try {
     const tokenRes = await fetch(`${KC_URL}/realms/master/protocol/openid-connect/token`, {
       method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -97,6 +108,24 @@ async function revokeTenantSessions(tenantId) {
     });
     if (!tokenRes.ok) throw new Error(`admin login failed (HTTP ${tokenRes.status})`);
     const headers = { authorization: `Bearer ${(await tokenRes.json()).access_token}` };
+    const realm = realmOf(tenant?.issuer);
+    if (realm) {
+      // Realm per tenant: the whole realm belongs to this tenant, so end every session in it. The people also have sessions
+      // in master (the hub), found through the Google hosted domain it recorded on each of them.
+      const out = await fetch(`${KC_URL}/admin/realms/${realm}/logout-all`, { method: 'POST', headers });
+      if (!out.ok && out.status !== 204) throw new Error(`ending the sessions of realm ${realm} failed (HTTP ${out.status})`);
+      let masterUsers = 0;
+      for (const d of tenant.domains ?? []) {
+        const res = await fetch(`${KC_URL}/admin/realms/master/users?q=${encodeURIComponent(`google_hd:${d}`)}&max=1000`, { headers });
+        if (!res.ok) continue;
+        for (const u of (await res.json()).filter((x) => (x.attributes?.google_hd ?? [])[0]?.toLowerCase() === d.toLowerCase())) {
+          await fetch(`${KC_URL}/admin/realms/master/users/${u.id}/logout`, { method: 'POST', headers });
+          masterUsers++;
+        }
+      }
+      console.log(`ended every session in realm ${realm} and the master sessions of ${masterUsers} of its user(s) (refresh tokens and SSO sessions end now)`);
+      return;
+    }
     const res = await fetch(`${KC_URL}/admin/realms/${KC_REALM}/users?q=${encodeURIComponent(`tenant_id:${tenantId}`)}&max=1000`, { headers });
     if (!res.ok) throw new Error(`user search failed (HTTP ${res.status})`);
     const users = (await res.json()).filter((u) => (u.attributes?.tenant_id ?? [])[0] === tenantId);
@@ -116,7 +145,7 @@ switch (cmd) {
     if (reg.tenants.length === 0) console.log('(no tenants)');
     for (const t of reg.tenants) {
       console.log(`${t.tenantId.padEnd(16)} ${t.status.padEnd(10)} sso=${t.ssoEnabled ? 'on ' : 'off'} ${t.domains.join(', ')}` +
-        `${t.groupsDelegatedAdmin ? `  groups-admin=${t.groupsDelegatedAdmin}` : ''}  (${t.name})`);
+        `${t.groupsDelegatedAdmin ? `  groups-admin=${t.groupsDelegatedAdmin}` : ''}${t.issuer ? `  issuer=${t.issuer}` : ''}  (${t.name})`);
     }
     break;
   }
@@ -129,6 +158,7 @@ switch (cmd) {
     const domains = [...new Set(flags.domain.map((d) => checkDomain(reg, d, flags.id)))];
     const tenant = { tenantId: flags.id, name: flags.name, status: 'active', ssoEnabled: (flags.sso ?? 'on') !== 'off', domains };
     if (flags['groups-admin']) tenant.groupsDelegatedAdmin = checkAdmin(flags['groups-admin'], domains);
+    if (flags.issuer) tenant.issuer = checkIssuer(reg, flags.issuer, flags.id);
     reg.tenants.push(tenant);
     save(reg);
     console.log(`added ${tenant.tenantId} (${domains.join(', ')})`);
@@ -149,6 +179,18 @@ switch (cmd) {
     break;
   }
 
+  case 'set-issuer': {
+    const [id, issuer] = args;
+    const t = reg.tenants.find((x) => x.tenantId === id);
+    if (!t) fail(`unknown tenant ${id}`);
+    if (!issuer) fail('usage: set-issuer <tenantId> <issuer URL>');
+    t.issuer = checkIssuer(reg, issuer, id);
+    save(reg);
+    console.log(`${id}: issuer = ${t.issuer}`);
+    console.log('the backend now trusts tokens from that realm for this tenant only, and for no other tenant.');
+    break;
+  }
+
   case 'suspend':
   case 'activate': {
     const [id] = args;
@@ -160,11 +202,11 @@ switch (cmd) {
     if (cmd === 'suspend') {
       console.log('new logins are denied, and API requests return 403 immediately.');
       if (args.includes('--no-revoke')) console.log('skipped revoking Keycloak sessions (--no-revoke): refresh tokens and SSO sessions stay valid until they expire.');
-      else await revokeTenantSessions(id);
+      else await revokeTenantSessions(id, t);
     }
     break;
   }
 
   default:
-    fail('usage: tenant.mjs list | add --id --name --domain [--groups-admin] [--sso off] | add-domain <id> <domain> | suspend <id> | activate <id>');
+    fail('usage: tenant.mjs list | add --id --name --domain [--groups-admin] [--sso off] [--issuer URL] | add-domain <id> <domain> | set-issuer <id> <URL> | suspend <id> | activate <id>');
 }

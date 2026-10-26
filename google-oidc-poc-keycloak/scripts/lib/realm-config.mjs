@@ -8,20 +8,20 @@ export const NO_EMAIL_LINK_FLOW = 'first broker login (no email linking)';
 export const TENANT_ATTRIBUTES = ['tenant_id', 'tenant_domain', 'idp_alias', 'idp_subject'];
 
 /** Admin-only user attributes: users can neither see nor change them (the account API rejects writes). */
-export async function ensureUserProfileAttributes(api, log = console.log) {
+export async function ensureUserProfileAttributes(api, log = console.log, names = TENANT_ATTRIBUTES) {
   const profile = await api('GET', '/users/profile');
   let changed = false;
-  for (const name of TENANT_ATTRIBUTES) {
+  for (const name of names) {
     if (!profile.attributes.some((a) => a.name === name)) {
       profile.attributes.push({ name, displayName: name, permissions: { view: ['admin'], edit: ['admin'] }, validations: {} });
       changed = true;
     }
   }
   if (changed) await api('PUT', '/users/profile', profile);
-  log(`  user profile: tenant/identity attributes ${changed ? 'added (admin-only)' : 'already present'}`);
+  log(`  user profile (${names.join(', ')}): ${changed ? 'added (admin-only)' : 'already present'}`);
 }
 
-const attributeMapper = (name, userAttribute = name, claim = name) => ({
+export const attributeMapper = (name, userAttribute = name, claim = name) => ({
   name,
   protocol: 'openid-connect',
   protocolMapper: 'oidc-usermodel-attribute-mapper',

@@ -1,3 +1,5 @@
+> **Superseded design (kept as a record).** This document describes the earlier single-realm design, in which all tenants share one realm and the tenant is resolved from `hd` through a registry. The system now uses **hub-and-spoke**: a realm per tenant, a shared Google IdP in `master`, a tenant gate in each realm and on master, and a backend that trusts each realm's issuer only for its own tenant. See [hub_and_spoke_poc_plan.md](hub_and_spoke_poc_plan.md) and [google_hub_and_spoke_design.md](google_hub_and_spoke_design.md). Findings here that are about Google behaviour, identity keys and failure modes still apply.
+
 # Architecture Validation — Multi-Tenant Google Workspace SSO
 
 A critical review of the design in [multi_tenant_saas_design.md](multi_tenant_saas_design.md), written to find

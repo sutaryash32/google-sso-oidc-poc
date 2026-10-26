@@ -1,3 +1,5 @@
+> **Hub-and-spoke note.** The OAuth client created here is reused as is. Its authorized redirect URIs must include master's endpoint, `http://localhost:8280/realms/master/broker/google/endpoint` (the single URI Google ever sees; tenants need no Google Cloud change). The older per-realm URI `.../realms/google-oidc-poc/broker/google-oidc/endpoint` is only needed for the fallback single-realm login. See [README.md](README.md).
+
 # Google OAuth 2.0 Client ID Setup (for OIDC)
 
 Do this in GCP Console — you can reuse the same GCP project used for the SAML

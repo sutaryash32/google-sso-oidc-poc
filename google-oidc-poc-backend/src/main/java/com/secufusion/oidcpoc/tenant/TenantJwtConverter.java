@@ -16,7 +16,8 @@ public class TenantJwtConverter implements Converter<Jwt, AbstractAuthentication
                 jwt.getSubject(),
                 jwt.getClaimAsString("idp"),
                 jwt.getClaimAsString("idp_sub"),
-                jwt.getClaimAsString("email"));
+                jwt.getClaimAsString("email"),
+                jwt.getIssuer() == null ? null : jwt.getIssuer().toString());
         return new TenantAuthentication(jwt, List.of(), ctx);
     }
 }

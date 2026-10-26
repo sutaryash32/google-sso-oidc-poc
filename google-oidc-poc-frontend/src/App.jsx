@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import keycloak from './keycloak';
+import keycloak, { idpHint } from './keycloak';
 import './App.css';
 
 const BACKEND_URL = 'http://localhost:8095';
@@ -112,10 +112,10 @@ export default function App() {
         <div className="stack">
           <div className="card login">
             <h1>Google Workspace SSO</h1>
-            <p>Sign in with your yserious.com account.</p>
+            <p>Sign in with your Google Workspace account.</p>
             <button
               className="btn btn-primary"
-              onClick={() => keycloak.login({ idpHint: 'google-oidc' })}
+              onClick={() => keycloak.login({ idpHint })}
             >
               Sign in with Google Workspace
             </button>

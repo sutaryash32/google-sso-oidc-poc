@@ -26,7 +26,11 @@ after any Keycloak upgrade, because the SPI uses an internal Keycloak API.
 | Adversarial suite | `scripts/e2e-attacks.mjs` | Identity-lifecycle and abuse cases (recreated/renamed accounts, aliases, unmanaged accounts, suspension vs refresh tokens). Records OK / GAP / INFO instead of pass/fail. Findings are written up in `../docs/architecture_validation.md`. |
 | Backend | `../../google-oidc-poc-backend` | The project's backend: validates the tokens and scopes all data to the token's tenant. Run here with environment overrides (below). See "Backend enforcement". |
 | App database | `docker-compose.yml` (`spike-db`), `../db/init.sql` | Postgres with composite keys and forced row-level security, accessed by a non-owner role. |
-| Backend e2e | `scripts/e2e-backend.mjs` | 17 checks with real Keycloak tokens against the running backend and database. |
+| Backend e2e | `scripts/e2e-backend.mjs` | 17 checks with real Keycloak tokens against the running backend and database (single legacy issuer). |
+| **Hub-and-spoke: chain and tenant gate** | `scripts/hub-and-spoke-e2e.mjs` | 43 checks: two tenants set up by `setup-tenant.mjs` (idempotent), the chain through master with stand-in master users, claim propagation, user creation, federated logout, cross-tenant refusals, each gate denial reason (and its log line), a subject conflict, and a control that removes the gate to show a realm without it admits anyone. |
+| **Hub-and-spoke: master gate** | `scripts/master-gate-e2e.mjs` | 46 checks with the mock Google registered in master as a Google-type IdP (personas in `mock-idp/server.mjs`): the master IdP mappers, the master gate bound to all tenants' domains, foreign organizations / consumer accounts / unverified emails / look-alike domains refused at master with nothing created, a real tenant's account in the wrong realm, tenant removal narrowing master, a control without the master gate. |
+| **Hub-and-spoke: backend** | `scripts/e2e-backend-hub.mjs` | 22 checks: builds and starts the real backend (port 8196) against two real realms; each realm accepted only for its own tenant, a realm that forges another tenant's id refused (`403 issuer_mismatch`), an unregistered realm refused (401), registry removal and suspension at once, data isolation. Needs Maven and Java. |
+| Shared helpers | `scripts/lib/browser.mjs`, `scripts/lib/hub.mjs` | Path-aware cookie jar; admin API, running `setup-tenant.mjs` against the harness, and a browserless sign-in through the whole chain. |
 
 ## Run it
 
@@ -42,7 +46,7 @@ Backend (the real `../../google-oidc-poc-backend`, pointed at the spike with env
 
 ```powershell
 cd ..\..\google-oidc-poc-backend
-mvn test                                               # 39 tests; the 11 database tests need `docker compose up -d` (spike-db) first
+mvn test                                               # 71 tests; the 11 database tests need `docker compose up -d` (spike-db) first
 $env:SPRING_DOCKER_COMPOSE_ENABLED="false"             # do not let this instance start the real stack's containers
 $env:SERVER_PORT="8195"
 $env:TENANT_ISSUER="http://localhost:8380/realms/spike-mt"

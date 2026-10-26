@@ -1,5 +1,7 @@
 # tenant-spi
 
+> **Current design: hub-and-spoke.** The plugin's current job is `HubTenantGateMapper` (last row of the table). `TenantResolverMapper`, `TenantGuardMapper`, `NoEmailLinkAuthenticator` and the registry belong to the earlier single-realm design, which still runs as a fallback.
+
 A small Keycloak plugin (an identity-provider mapper) that decides **which tenant a login belongs to** and
 refuses everything else. It runs on every brokered login, *before* Keycloak creates or links any user.
 
@@ -18,14 +20,15 @@ subject for the person: the stable key, unlike Keycloak's user id), which protoc
 | `TenantResolverMapper` | The Keycloak integration (`preprocessFederatedIdentity`, `importNewUser`, `updateBrokeredUser`). Stamps `tenant_id`, `tenant_domain`, `idp_alias`, `idp_subject`. |
 | `NoEmailLinkAuthenticator` | Replaces "Handle Existing Account" in a copy of the first-login flow: a new provider identity is never linked to an existing user by email. |
 | `TenantGuardMapper` | A token-time check: refuses to issue any token, including a refresh, for an unknown, suspended or SSO-disabled tenant. |
+| `HubTenantGate`, `HubTenantGateMapper` | **The current design's gate.** Pure logic in `HubTenantGate` (unit-tested), claims read by the mapper. On a tenant realm's `google-hub` IdP it reads the claims master passes on (`google_hd`, `google_email_verified`, `google_sub`); on master's own Google IdP (`claim.prefix=raw`, `gate.name=master`) it reads Google's raw claims (`hd`, `email_verified`, `sub`). Before any user is created it requires the `hd`, a verified email and the email's domain to belong to `allowed.domains` (that tenant's domains; on master, all tenants'), a Google subject, and no conflicting subject for a known user. Every missing claim is a denial; an empty domain list denies everyone. Set up and kept current by `../scripts/setup-tenant.mjs`. |
 
 ## Build
 
-You normally do not build it by hand: `../Dockerfile` compiles it (and runs its 35 unit tests) while building the
+You normally do not build it by hand: `../Dockerfile` compiles it (and runs its 46 unit tests) while building the
 Keycloak image, and the backend triggers that build the first time it starts the stack.
 
 ```powershell
-mvn package        # only for working on the plugin locally: runs the 35 unit tests, produces target/tenant-spi.jar
+mvn package        # only for working on the plugin locally: runs the 46 unit tests, produces target/tenant-spi.jar
 ```
 
 ## How it is wired

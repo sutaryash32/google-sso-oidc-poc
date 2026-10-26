@@ -5,8 +5,11 @@
       "name": "Yserious",
       "status": "active",
       "ssoEnabled": true,
-      "domains": ["yserious.com"],
-      "groupsDelegatedAdmin": "yash@yserious.com"
+      "domains": [
+        "yserious.com"
+      ],
+      "groupsDelegatedAdmin": "yash@yserious.com",
+      "issuer": "http://localhost:8280/realms/yserious"
     }
   ]
 }

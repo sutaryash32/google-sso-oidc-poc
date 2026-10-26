@@ -1,108 +1,145 @@
-# Multi-Tenant Google Workspace SSO (OIDC)
+# Multi-Tenant Google Workspace SSO (OIDC), hub-and-spoke
 
-Keycloak is the identity broker, Google Workspace is the identity source, and a Spring Boot resource
-server validates the Keycloak JWTs. **`yserious.com` is tenant #1**; other organizations are added by
-registering them (see "Add a tenant"). The realm (`google-oidc-poc`) and client ids are unchanged.
-
-The repository has exactly three project folders:
+Keycloak is the identity broker, Google Workspace is the identity source, and a Spring Boot resource server validates the
+tokens. The design mirrors SecuFusion's Azure SSO: **a realm per tenant, a shared Google identity provider in the `master`
+realm, and a hub IdP in each tenant realm that reaches it.** `yserious.com` is the first tenant (realm `yserious`).
 
 ```
-google-oidc-poc-keycloak/    (this folder) Keycloak 24.0.3 + app database (Docker), tenant registry, tenant scripts
-  tenant-spi/                Keycloak plugin (Java) that resolves and enforces the tenant at login
+Browser / SPA
+   |  kc_idp_hint=google-hub
+   v
+tenant realm  yserious     issues the app JWT   (iss = .../realms/yserious)
+   |  IdP "google-hub"     (an OIDC client of master)      + TENANT GATE (yserious.com)
+   v
+realm  master              client "broker-for-yserious"
+   |  IdP "google"         the ONE shared Google IdP        + MASTER GATE (all tenants' domains)
+   v
+Google Workspace
+```
+
+The repository has three project folders, and nothing else is needed:
+
+```
+google-oidc-poc-keycloak/    (this folder) Keycloak 24.0.3 + app database (Docker), tenant registry, setup scripts
+  tenant-spi/                Keycloak plugin (Java): the tenant gate, plus the earlier single-realm tenant mapper
   db/                        schema for the application database
-  docs/                      design + guides
-  test-harness/              mock Google + end-to-end suites
-google-oidc-poc-backend/     Spring Boot: JWT + tenant validation, tenant-scoped data, Google Groups
+  docs/                      design and review documents
+  scripts/                   setup-tenant.mjs, tenant.mjs, observe-tenant.mjs, ... (see "Scripts")
+  test-harness/              mock Google and the end-to-end suites
+google-oidc-poc-backend/     Spring Boot: per-realm token validation, tenant-scoped data, Google Groups
 google-oidc-poc-frontend/    React/Vite: login, shows the resolved tenant, identity and groups
 ```
 
-Start with: `docs/multi_tenant_saas_design.md` (architecture and rationale), `docs/architecture_validation.md` (a critical
-review of that design: what was tested, the weaknesses found, and the verdict), `docs/google_spike_runbook.md` (the real-Google
-sign-ins only you can do, step by step), `test-harness/README.md` (what was
-proven, how, and what was not) and `docs/sso_oidc_readme.md` (original single-domain POC guide: the Google/Keycloak
-setup steps). All paths below are relative to this folder.
+Where to read: [../run.md](../run.md) to run it; `docs/hub_and_spoke_poc_plan.md` for the design and what changed since;
+`docs/google_hub_and_spoke_design.md` for how it maps onto SecuFusion's Azure implementation (and its risks); `test-harness/README.md`
+for what was proven and how. The earlier shared-realm design is kept as a record in `docs/multi_tenant_saas_design.md`,
+`docs/architecture_validation.md` and `docs/sso_oidc_readme.md`; it still runs as a fallback and is described at the end.
 
 ## How a login works
 
-1. The SPA sends the user to Keycloak with `kc_idp_hint=google-oidc`; Keycloak sends them to Google
+1. The SPA starts a login in the tenant realm (`yserious`) with the hint `google-hub`.
+2. `google-hub` sends the browser to master (`kc_idp_hint=google`, client `broker-for-yserious`); master sends it to Google
    (`hd=*`, `prompt=select_account`).
-2. Google authenticates; Keycloak validates the ID token.
-3. **Tenant enforcement** (the SPI, an identity-provider mapper) runs *before any Keycloak user is
-   created*: the verified `hd` claim must resolve, through `tenant-registry.json`, to exactly one active,
-   SSO-enabled tenant, and the email / discovery hint / existing user must agree with it. Otherwise: 403, no user, no token.
-4. On success the user is stamped with admin-only attributes `tenant_id` and `tenant_domain`, and the
-   tokens carry them as claims, plus the audience `oidc-poc-api`.
-5. The backend validates signature, issuer, expiry, audience and tenant claims, re-checks the tenant
-   against the registry **on every request**, and scopes every query to the token's tenant
-   (explicit `tenant_id` filter + Postgres row-level security).
+3. Google authenticates. **Master gate:** before any user exists in master, the account's Google `hd`, verified email and email
+   domain must belong to a domain of some tenant. An organization that is nobody's tenant is refused here and leaves no record.
+4. Master maps `hd`, `sub` and `email_verified` onto the master user and hands the realm a token with `google_hd`, `google_sub`,
+   `google_email_verified`. (Server-to-server calls from the tenant realm to master use the Docker-internal URL.)
+5. **Tenant gate:** in the tenant realm, before any user exists there, the same three checks run against **that tenant's** domains.
+   A real tenant's account sent to the wrong tenant's realm is refused here (master keeps a record for that person, since it
+   belongs to its own tenant). Every missing claim is a denial.
+6. The realm creates/links the user, stamps `google_hd` / `google_sub` (admin-only attributes) and issues **its own** JWT:
+   `iss` = the tenant realm, `idp_sub` = the person's Google subject (the stable key; Keycloak's own user id is not),
+   audience `oidc-poc-api`, and `tenant_id` / `tenant_domain` / `idp` as constants of the realm.
+7. The backend accepts a token only if its issuer is the one the registry binds to a tenant, verifies signature, expiry and
+   audience with that realm's keys, and then checks that the tenant claimed in the token is the tenant bound to that issuer
+   (`403 issuer_mismatch` otherwise: whoever administers a realm can write any `tenant_id` into its tokens, so the claim alone is
+   not trusted). It re-checks the tenant against the registry on every request, and scopes every query to it (explicit
+   `tenant_id` filter plus Postgres row-level security).
 
-## Run order
+Logout is federated: ending the tenant realm's session also ends master's (the broker client allows the return URI).
 
-**Starting the backend also starts everything it depends on.** Spring Boot's Docker Compose support runs this
-folder's `docker-compose.yml` for you and waits until Keycloak and both databases are healthy, so there are only
-two things to start:
+## Keycloak objects
 
-```powershell
-# 1. Backend (port 8095). Also starts Keycloak + its database + the application database.
-cd ..\google-oidc-poc-backend
-mvn spring-boot:run          # or run GoogleOidcPocApplication from your IDE; no profile or VM option needed
+| Where | Object |
+|---|---|
+| master (once) | IdP `google` (provider `google`, the Google OAuth client, Hosted Domain, `prompt=select_account`), its attribute importers (`hd`, `sub`, `email_verified`), the **master gate** |
+| master (per tenant) | confidential client `broker-for-<id>`; redirect URI = the tenant realm's `google-hub` callback; post-logout URI; mappers that put `google_hd` / `google_sub` / `google_email_verified` into its tokens |
+| tenant realm | IdP `google-hub` (`keycloak-oidc`, `trustEmail=false`, no userinfo call, issuer left blank), its three attribute importers, the **tenant gate**, client `google-oidc-poc-frontend` (PKCE S256, audience mapper, `idp_sub` and the constant claims), the three admin-only user attributes |
 
-# 2. Frontend (port 5173), in another terminal
-cd ..\google-oidc-poc-frontend
-npm install ; npm run dev
-```
-
-Open http://localhost:5173 and sign in. You should see your tenant, identity and groups.
-
-Things to know:
-
-- **First start is slow (a few minutes).** Docker builds the Keycloak image, which includes compiling the tenant
-  plugin and running its unit tests, and downloads the base images. Later starts take well under a minute.
-- **The containers keep running when the backend stops** (`lifecycle-management: start-only`), so a restart is fast.
-  Stop them with `docker compose stop` in this folder.
-- **After changing `tenant-spi/`**, rebuild the image or Keycloak keeps the old plugin: `docker compose build keycloak`,
-  then `docker compose up -d`.
-- **Group lookups** need `google-service-account.json` in `google-oidc-poc-backend/src/main/resources/`.
-- **To start the containers yourself instead** (or in production, where the backend must not start infrastructure),
-  run `docker compose up -d --build` here and start the backend with `SPRING_DOCKER_COMPOSE_ENABLED=false`.
-- **One-time realm setup.** `node scripts\enable-multitenancy.mjs` has already been applied to your realm. It is
-  idempotent; re-run it only for a fresh Keycloak database (`--revert` undoes it). See "What the script changes".
+Tenants are **not** created in the admin console: use the scripts. The console is only for looking (a tenant's users appear
+under Users with `google_hd` and `google_sub`, and the same person also exists in `master`).
 
 ## Add a tenant
 
+Two commands: the realm and its gates, then its place in the registry, which the backend reads (the issuer is the realm's URL).
+
 ```powershell
-node scripts\tenant.mjs add --id t-acme --name "Acme Corp" --domain acme.com [--domain acme.co.uk] [--groups-admin admin@acme.com] [--sso off]
-node scripts\tenant.mjs list
-node scripts\tenant.mjs suspend t-acme       # new logins denied, API returns 403 immediately
-node scripts\tenant.mjs activate t-acme
-node scripts\tenant.mjs add-domain t-acme acme.org
+node scripts\setup-tenant.mjs --id acme --domain acme.com [--domain acme.co.uk]      # secondary domains: repeat --domain
+node scripts\tenant.mjs add --id t-acme --name "Acme Corp" --domain acme.com --issuer http://localhost:8280/realms/acme
+node scripts\setup-tenant.mjs --id acme --check        # read-only: is everything in place? (exit 1 if not)
 ```
 
-The Keycloak SPI and the backend both reload the registry file when it changes: no restart. The CLI refuses a
-domain that already belongs to another tenant (an ambiguous registry is denied at login), an invalid id or
-domain, and a groups admin outside the tenant's own domains.
+`setup-tenant.mjs` is idempotent. It also recomputes the master gate's domain list from the tenant realms, so it never goes stale.
+The first run needs `$env:GOOGLE_CLIENT_SECRET` while master's Google IdP does not exist yet. Registry changes (suspend, activate,
+remove) take effect on the backend's next request, with no restart:
+
+```powershell
+node scripts\tenant.mjs list
+node scripts\tenant.mjs suspend t-acme       # API 403 at once; ends the tenant realm's sessions and its users' master sessions (session part untested)
+node scripts\tenant.mjs activate t-acme
+node scripts\tenant.mjs add-domain t-acme acme.org
+node scripts\tenant.mjs set-issuer t-acme http://localhost:8280/realms/acme
+node scripts\setup-tenant.mjs --id acme --revert      # removes the realm and its broker client (--all: master's Google IdP too)
+```
+
+**Hosted Domain.** Master's Google IdP is currently `*` (any managed Google organization may reach Keycloak; consumer Gmail has no
+`hd` and is refused). The first tenant's setup creates it restricted to that tenant's domain; `--hosted-domain '*'` changes it.
+The gates, not this setting, keep tenants apart: a realm without its gate admits whatever master admits, hence `--check`.
 
 **Before a real customer can sign in, three things are NOT automated:**
 
-1. **Domain ownership.** Prove the customer owns the domain (e.g. a DNS TXT challenge) *before* adding it. The
-   registry decides who may sign in, and `hd` only proves membership of a Workspace, not authority over a domain.
-2. **Google consent screen.** It is currently **Internal**, which admits only your own organization. Accounts
-   from other organizations never reach Keycloak until the OAuth consent screen is **External** and published
-   (Google Cloud Console). That is a manual step in Google; nothing in this repo can do it.
-3. **Group sync for that tenant** (optional). `--groups-admin` must be a real admin in *their* Workspace, and
-   their super admin must authorize the service account's Client ID (domain-wide delegation) with the read-only
-   Directory scopes in *their* Admin console. Without it, `/api/users/{email}/groups` returns 501 for that tenant.
+1. **Domain ownership.** Prove the customer owns the domain (for example a DNS TXT challenge) before adding it. `hd` proves
+   membership of a Workspace, not authority over a domain name.
+2. **Google consent screen.** It must be **External** for other organizations to reach Keycloak. For this project it is External in
+   *Testing* mode, which admits only the listed test users; publishing it admits any Google account (the gates still apply).
+3. **Group sync for that tenant** (optional). `groupsDelegatedAdmin` must be a real admin of *their* Workspace, and their super
+   admin must authorize the service account's Client ID with the read-only Directory scopes. Otherwise `/api/users/{email}/groups`
+   returns 501 for that tenant.
 
-## What `enable-multitenancy.mjs` changes in the realm
+## Groups
 
-- Google IdP `google-oidc`: Hosted Domain `yserious.com` → `*` (the registry, not Hosted Domain, is now the
-  tenant boundary; consumer Gmail is still rejected because `*` requires an `hd` claim); `prompt=select_account`.
-- Adds the `tenant-resolver` identity-provider mapper (the SPI).
-- Adds admin-only user attributes `tenant_id`, `tenant_domain`, `idp_alias`, `idp_subject`; back-fills them for existing Google-linked users.
-- On client `google-oidc-poc-frontend` (id unchanged): `tenant_id`, `tenant_domain`, `idp`, `idp_sub` and audience mappers. `idp` / `idp_sub` are the identity provider and ITS subject for the person (for Google, the `sub` claim): the stable person key. Keycloak's own user id is not stable (it changes if the user is deleted and re-linked), so the backend keys users on `(tenant_id, idp, idp_sub)`.
-- With `--harden` (validated on the test harness, not yet applied to this realm): a first-login flow that **never links a new Google identity to an existing user by email**, and a **token-time tenant guard** that refuses tokens, including refreshes, for a suspended tenant.
+Groups are not Keycloak groups and are not in the token. They stay in each tenant's own Google Workspace and are read on demand: the
+backend takes the tenant from the token, looks up that tenant's `groupsDelegatedAdmin` in the registry, and impersonates that admin
+(domain-wide delegation, one service account for all tenants) to call the Google Directory API. Guards: the path email must equal the
+token email, and the delegated admin's domain must belong to the tenant. Groups do not drive authorization yet (the token's
+authorities are empty); if they are later mapped to roles or claims, namespace them by tenant.
 
-The Google client id/secret, the realm name, existing users and the client ids are not touched.
+## Run order
+
+**Starting the backend also starts everything it depends on.** Spring Boot's Docker Compose support runs this folder's
+`docker-compose.yml` and waits until Keycloak and both databases are healthy:
+
+```powershell
+cd ..\google-oidc-poc-backend ; mvn spring-boot:run     # port 8095; or run GoogleOidcPocApplication from the IDE
+cd ..\google-oidc-poc-frontend ; npm install ; npm run dev   # port 5173, in another terminal
+```
+
+Open http://localhost:5173 and sign in. First-time realm setup and troubleshooting are in [../run.md](../run.md).
+
+- **First start is slow (a few minutes):** Docker builds the Keycloak image, compiling the plugin and running its tests.
+- **The containers keep running when the backend stops** (`start-only`); stop them with `docker compose stop` here.
+- **After changing `tenant-spi/`**, rebuild or Keycloak keeps the old plugin: `docker compose build keycloak`, then `docker compose up -d`.
+- **Group lookups** need `google-service-account.json` in `google-oidc-poc-backend/src/main/resources/` (git-ignored).
+- **Without Spring starting Docker** (production): `docker compose up -d --build` here, and `SPRING_DOCKER_COMPOSE_ENABLED=false`.
+
+## Scripts
+
+| Script | What it does |
+|---|---|
+| `scripts/setup-tenant.mjs` | Sets up the shared hub (once) and one tenant: realm, `google-hub`, tenant gate, broker client, app client, master gate. `--check`, `--revert`, `--hosted-domain` |
+| `scripts/tenant.mjs` | The tenant registry (`tenant-registry.json`): add, list, suspend, activate, add-domain, set-issuer |
+| `scripts/observe-tenant.mjs` | Read-only snapshot: users in master and a tenant realm, the gates' bound domains, recent gate decisions from the log. Run before and after a sign-in test |
+| `scripts/enable-multitenancy.mjs`, `check-multitenancy.mjs`, `migrate-provider-subject.mjs` | The earlier single-realm design (below) |
 
 ## Ports
 
@@ -114,30 +151,41 @@ The Google client id/secret, the realm name, existing users and the client ids a
 | Keycloak DB (pgAdmin) | 5433 |
 | Application DB (backend, pgAdmin) | 5435 |
 
-The test harness (`test-harness/`) uses its own Keycloak (8380), database (5434) and mock IdP (9100).
+The test harness uses its own Keycloak (8380), database (5434), mock IdP (9100) and, for one suite, a backend on 8196.
 
 ## Tests
 
-```powershell
-cd ..\google-oidc-poc-backend ; mvn test    # 39 tests; the 11 database tests need the harness database up (see below)
-cd ..\google-oidc-poc-keycloak\test-harness
-docker compose up -d                         # spike Keycloak + spike database
-node mock-idp\server.mjs                     # mock Google, leave running
-node scripts\setup-realm.mjs ; node scripts\e2e.mjs                 # SPI: 20 scenarios
-# backend e2e: see test-harness\README.md ("Backend enforcement")
-```
+Unit tests: `mvn test` in `tenant-spi/` (46) and in `../google-oidc-poc-backend` (71; the 11 database tests need the harness
+database and refuse to touch any other, unless `ALLOW_DESTRUCTIVE_DB_TESTS=true`). End-to-end suites, without Google, in
+`test-harness/scripts/` (each sets up its own realms; see `test-harness/README.md`):
 
-The database tests are destructive (they truncate the tenant tables), so they refuse to run against anything
-other than the disposable spike database unless `ALLOW_DESTRUCTIVE_DB_TESTS=true`.
+| Suite | Proves |
+|---|---|
+| `hub-and-spoke-e2e.mjs` (43) | the chain, the tenant gate, a second tenant, cross-tenant refusals, each denial reason, federated logout, and a control showing a realm without its gate admits anyone |
+| `master-gate-e2e.mjs` (46) | the master gate with a Google-like IdP in master: foreign organizations, consumer accounts, unverified emails and look-alike domains are refused at master with nothing created; removing a tenant narrows master |
+| `e2e-backend-hub.mjs` (22) | the real backend against two realms: each realm only for its own tenant, a forging realm refused, an unregistered issuer never trusted, registry changes at once, data isolation |
+
+With **real Google**: the `yserious.com` sign-in passes through every layer, and a personal Gmail is refused at master with no user
+created. **Not yet run with real Google:** a foreign Workspace organization.
 
 ## Known gaps
 
-- **Not verified with a real Google login in this configuration.** The SPI was proven against a mock Google
-  (and the realm, tokens, backend, database and groups were verified with a token for your real user), but the
-  first genuine sign-in through Google with `hd=*` and the SPI is yours to run.
-- **Roles / permissions are not implemented** (the token's authorities are empty); only tenant isolation is.
-- Domain-ownership verification, a tenant control-plane API (the registry is a JSON file), alias/secondary-domain
-  behaviour of `hd`, and multi-tenant domain-wide-delegation onboarding are still design (see
-  `docs/multi_tenant_saas_design.md`).
-- Dev credentials are in `docker-compose.yml` (`admin/admin`, database passwords). The service-account key was
-  pasted into a chat earlier; rotate it.
+- A foreign managed Google account has not been tried against real Google (needs a second Workspace); that denial is proven with the mock.
+- **Roles / permissions are not implemented**; only tenant isolation is. Domain-ownership verification and a tenant control-plane API
+  (the registry is a JSON file) are design only.
+- The frontend is fixed to one realm (a tenant-selecting login is a UI task), and the tenant claims in the app token are constants of
+  the realm rather than derived from the issuer.
+- PKCE is on between the app and the tenant realm; it is not enabled on the tenant-realm-to-master or master-to-Google legs.
+- Master keeps a record for a real tenant's account sent to the wrong tenant's realm. The realm's `email_verified` flag stays false
+  (the gate uses Google's own value, carried separately).
+- Dev credentials are in `docker-compose.yml` (`admin/admin`, database passwords). The Google service-account key and the OAuth
+  client secret were pasted into a chat during development: **rotate both**.
+
+## The earlier single-realm design (still runs as a fallback)
+
+All tenants shared one realm `google-oidc-poc` and one Google IdP `google-oidc-poc`/`google-oidc`; a plugin mapper
+(`TenantResolverMapper`) resolved the tenant from `hd` through `tenant-registry.json` before user creation, and the backend
+validated one issuer. Scripts: `enable-multitenancy.mjs` (`--harden`, `--revert`), `check-multitenancy.mjs`. To use it again, remove
+`"issuer"` from the tenant's registry entry, start the backend with `TENANT_ISSUER` / `TENANT_JWK_SET_URI` pointing at that realm and
+the frontend with `VITE_KC_REALM=google-oidc-poc` and `VITE_KC_IDP_HINT=google-oidc`. Its design and review are in
+`docs/multi_tenant_saas_design.md` and `docs/architecture_validation.md`.

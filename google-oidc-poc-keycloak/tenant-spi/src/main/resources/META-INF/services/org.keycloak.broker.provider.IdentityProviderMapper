@@ -1,1 +1,2 @@
 com.secufusion.spike.tenant.TenantResolverMapper
+com.secufusion.spike.tenant.HubTenantGateMapper

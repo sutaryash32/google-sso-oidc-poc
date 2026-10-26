@@ -10,8 +10,12 @@ google:
 # the test harness (google-oidc-poc-keycloak/test-harness) points this same backend at its own realm and database.
 app:
   tenant:
-    issuer: ${TENANT_ISSUER:http://localhost:8280/realms/google-oidc-poc}
-    jwk-set-uri: ${TENANT_JWK_SET_URI:http://localhost:8280/realms/google-oidc-poc/protocol/openid-connect/certs}
+    # Hub-and-spoke: each tenant has its own Keycloak realm. The trusted issuers are the "issuer" of every tenant in the
+    # registry file below (e.g. http://localhost:8280/realms/yserious); keys are fetched from <issuer>/protocol/openid-connect/certs.
+    # issuer / jwk-set-uri here are an optional single LEGACY issuer (the older one-realm setup, and the test harness): leave
+    # them empty to trust registry issuers only. A tenant with an "issuer" in the registry is never served from the legacy one.
+    issuer: ${TENANT_ISSUER:}
+    jwk-set-uri: ${TENANT_JWK_SET_URI:}
     # Tokens must be issued for this audience (Keycloak audience mapper on the frontend client).
     audience: ${TENANT_AUDIENCE:oidc-poc-api}
     # Same file the Keycloak tenant SPI reads; in production this is a call to the tenant control plane.
