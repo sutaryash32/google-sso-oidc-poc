@@ -1,0 +1,59 @@
+{
+  "tenants": [
+    {
+      "tenantId": "t-acme",
+      "name": "Acme Corp",
+      "status": "active",
+      "ssoEnabled": true,
+      "domains": [
+        "acme.com",
+        "acme.co.uk"
+      ]
+    },
+    {
+      "tenantId": "t-globex",
+      "name": "Globex",
+      "status": "active",
+      "ssoEnabled": true,
+      "domains": [
+        "globex.com"
+      ]
+    },
+    {
+      "tenantId": "t-initech",
+      "name": "Initech",
+      "status": "suspended",
+      "ssoEnabled": true,
+      "domains": [
+        "initech.com"
+      ]
+    },
+    {
+      "tenantId": "t-hooli",
+      "name": "Hooli",
+      "status": "active",
+      "ssoEnabled": false,
+      "domains": [
+        "hooli.com"
+      ]
+    },
+    {
+      "tenantId": "t-dup-a",
+      "name": "Dup A",
+      "status": "active",
+      "ssoEnabled": true,
+      "domains": [
+        "dup.com"
+      ]
+    },
+    {
+      "tenantId": "t-dup-b",
+      "name": "Dup B",
+      "status": "active",
+      "ssoEnabled": true,
+      "domains": [
+        "dup.com"
+      ]
+    }
+  ]
+}

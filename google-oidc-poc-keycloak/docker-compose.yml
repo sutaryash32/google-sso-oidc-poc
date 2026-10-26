@@ -1,0 +1,92 @@
+services:
+  keycloak-db:
+    image: postgres:15
+    container_name: oidc-poc-keycloak-db
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak_pw
+    volumes:
+      - oidc_poc_db_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5433:5432"   # pgAdmin access from this machine only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    labels:
+      org.springframework.boot.ignore: "true"   # not a datasource for the backend
+    networks:
+      - oidc-poc-net
+
+  # Application data (tenant-scoped, row-level security). Separate from Keycloak's own database.
+  # Schema: ./db/init.sql (shared with the test harness so there is a single source of truth).
+  app-db:
+    image: postgres:15
+    container_name: oidc-poc-app-db
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app_owner
+      POSTGRES_PASSWORD: owner_pw
+    volumes:
+      - oidc_poc_app_db_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    ports:
+      - "127.0.0.1:5435:5432"   # backend and pgAdmin access from this machine only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_owner -d app"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    labels:
+      org.springframework.boot.ignore: "true"   # the backend configures its own connection (TenantDataConfig)
+    networks:
+      - oidc-poc-net
+
+  keycloak:
+    # Built from ./Dockerfile: stock Keycloak + the tenant-resolver plugin (tenant-spi/). Same image tag as the
+    # test harness, so it is built once. Rebuild after changing tenant-spi/:  docker compose build keycloak
+    build: .
+    image: oidc-poc-keycloak-tenant:24.0.3
+    container_name: oidc-poc-keycloak
+    command: start-dev
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak_pw
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      TENANT_REGISTRY_FILE: /opt/keycloak/tenant-registry.json
+    volumes:
+      - ./tenant-registry.json:/opt/keycloak/tenant-registry.json:ro
+    ports:
+      - "8280:8080"
+    # The image has no curl; this speaks HTTP over bash's /dev/tcp. "docker compose up --wait" (which the backend
+    # runs) therefore returns only once Keycloak is really serving requests.
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"status\": \"UP\"' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
+    labels:
+      org.springframework.boot.ignore: "true"
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    networks:
+      - oidc-poc-net
+
+networks:
+  oidc-poc-net:
+    driver: bridge
+
+volumes:
+  oidc_poc_db_data:
+  oidc_poc_app_db_data:

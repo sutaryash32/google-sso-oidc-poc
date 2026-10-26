@@ -1,0 +1,11 @@
+{
+  "tenants": [
+    {
+      "tenantId": "t-yserious",
+      "name": "Yserious (real-Google spike)",
+      "status": "active",
+      "ssoEnabled": true,
+      "domains": ["yserious.com"]
+    }
+  ]
+}

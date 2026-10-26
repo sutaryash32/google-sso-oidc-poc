@@ -1,0 +1,26 @@
+# ---- Secrets: never commit these ----
+# Google service-account key (a live private key with domain-wide delegation)
+**/google-service-account.json
+# Google OAuth client id/secret for the real-Google spike
+**/.env.google
+**/.env
+**/.env.*
+!**/.env.example
+*.pem
+*.key
+
+# ---- Build output and dependencies ----
+target/
+node_modules/
+dist/
+build/
+*.class
+*.jar
+*.log
+
+# ---- IDE and OS ----
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

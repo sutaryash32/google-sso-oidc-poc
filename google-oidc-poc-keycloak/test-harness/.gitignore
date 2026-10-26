@@ -1,0 +1,2 @@
+# Holds the Google OAuth client id/secret for the real-Google spike. Never commit it; delete it when the spike is done.
+.env.google

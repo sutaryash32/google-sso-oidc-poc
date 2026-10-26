@@ -1,0 +1,7 @@
+tenant-spi/target
+test-harness
+docs
+scripts
+db
+*.md
+*.json

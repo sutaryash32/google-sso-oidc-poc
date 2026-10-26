@@ -1,0 +1,3 @@
+target/
+*.class
+src/main/resources/google-service-account.json

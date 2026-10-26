@@ -1,0 +1,41 @@
+server:
+  port: 8095
+
+google:
+  workspace:
+    service-account-key-path: ${GOOGLE_SA_KEY_PATH:classpath:google-service-account.json}
+    customer-id: my_customer
+
+# Multi-tenant resource server. Every value can be overridden by environment variable, which is how
+# the test harness (google-oidc-poc-keycloak/test-harness) points this same backend at its own realm and database.
+app:
+  tenant:
+    issuer: ${TENANT_ISSUER:http://localhost:8280/realms/google-oidc-poc}
+    jwk-set-uri: ${TENANT_JWK_SET_URI:http://localhost:8280/realms/google-oidc-poc/protocol/openid-connect/certs}
+    # Tokens must be issued for this audience (Keycloak audience mapper on the frontend client).
+    audience: ${TENANT_AUDIENCE:oidc-poc-api}
+    # Same file the Keycloak tenant SPI reads; in production this is a call to the tenant control plane.
+    # Relative paths are searched from the working directory and its parents (works from Maven and from an IDE).
+    registry-file: ${TENANT_REGISTRY_FILE:google-oidc-poc-keycloak/tenant-registry.json}
+    cors-allowed-origins: ${TENANT_CORS_ORIGINS:http://localhost:5173}
+    datasource:
+      url: ${TENANT_DB_URL:jdbc:postgresql://localhost:5435/app}
+      # Must be a role that is NOT the table owner and NOT a superuser, or row-level security is bypassed.
+      username: ${TENANT_DB_USER:app_user}
+      password: ${TENANT_DB_PASSWORD:app_pw}
+
+spring:
+  # Starting the backend also starts Keycloak and the databases (google-oidc-poc-keycloak/docker-compose.yml, found
+  # by ComposeFileLocator). start-only: the containers keep running when the backend stops.
+  # Switch off with SPRING_DOCKER_COMPOSE_ENABLED=false (the test harness does, and so should production).
+  docker:
+    compose:
+      lifecycle-management: start-only
+      readiness:
+        timeout: 5m
+  # Boot's JDBC auto-configuration is off; TenantDataConfig builds the DataSource and transaction beans.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
+      - org.springframework.boot.autoconfigure.jdbc.JdbcTemplateAutoConfiguration

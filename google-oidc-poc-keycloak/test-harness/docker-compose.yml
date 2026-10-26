@@ -1,0 +1,39 @@
+# Separate Keycloak for the test harness. Independent of the real stack in ../docker-compose.yml:
+# own container, own port (8380), in-container dev database. Deploying the SPI needs a
+# Keycloak restart, which is why this does not reuse the POC instance.
+services:
+  # Application database for the tenant-isolation checks. Not Keycloak's DB.
+  spike-db:
+    image: postgres:15
+    container_name: spike-db
+    environment:
+      POSTGRES_DB: spike
+      POSTGRES_USER: spike_owner
+      POSTGRES_PASSWORD: owner_pw
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - ../db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+
+  spike-keycloak:
+    # Same image (and build) as the real stack: stock Keycloak + the tenant-resolver plugin, built by ../Dockerfile.
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: oidc-poc-keycloak-tenant:24.0.3
+    container_name: spike-keycloak
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      TENANT_REGISTRY_FILE: /opt/keycloak/tenant-registry.json
+    ports:
+      - "127.0.0.1:8380:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./tenant-registry.json:/opt/keycloak/tenant-registry.json:ro
+      # Registry for the real-Google spike realm (spike-google), kept separate from the mock tenants above.
+      - ./google-spike-registry.json:/opt/keycloak/google-spike-registry.json:ro

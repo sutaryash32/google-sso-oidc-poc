@@ -1,0 +1,12 @@
+{
+  "tenants": [
+    {
+      "tenantId": "t-yserious",
+      "name": "Yserious",
+      "status": "active",
+      "ssoEnabled": true,
+      "domains": ["yserious.com"],
+      "groupsDelegatedAdmin": "yash@yserious.com"
+    }
+  ]
+}
