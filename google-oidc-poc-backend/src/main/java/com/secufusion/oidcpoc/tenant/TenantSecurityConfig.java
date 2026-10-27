@@ -60,7 +60,7 @@ public class TenantSecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(a -> a
-                        .requestMatchers("/api/public").permitAll()
+                        .requestMatchers("/api/public", "/api/public/**").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(o -> o.authenticationManagerResolver(new JwtIssuerAuthenticationManagerResolver(issuers)))
                 // Not a @Component on purpose: a Filter bean would also be auto-registered outside the security chain.

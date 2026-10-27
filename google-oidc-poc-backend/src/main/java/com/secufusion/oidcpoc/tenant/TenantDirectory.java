@@ -14,4 +14,12 @@ public interface TenantDirectory {
     default Optional<TenantInfo> findByIssuer(String issuer) {
         return Optional.empty();
     }
+
+    /**
+     * The tenant that owns this domain, for choosing the realm to sign in to. Empty if no tenant owns it, or if more than one
+     * does (ambiguous). Callers decide whether an inactive tenant may be revealed.
+     */
+    default Optional<TenantInfo> findByDomain(String domain) {
+        return Optional.empty();
+    }
 }

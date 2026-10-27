@@ -173,8 +173,10 @@ created. **Not yet run with real Google:** a foreign Workspace organization.
 - A foreign managed Google account has not been tried against real Google (needs a second Workspace); that denial is proven with the mock.
 - **Roles / permissions are not implemented**; only tenant isolation is. Domain-ownership verification and a tenant control-plane API
   (the registry is a JSON file) are design only.
-- The frontend is fixed to one realm (a tenant-selecting login is a UI task), and the tenant claims in the app token are constants of
-  the realm rather than derived from the issuer.
+- The tenant claims in the app token are constants of the realm rather than derived from the issuer. Tenants are created by script
+  (`setup-tenant.mjs` + `tenant.mjs`), not by an API; an admin endpoint that creates a tenant (realm, gates, registry entry) is not built.
+  The sign-in page chooses the realm by the organization's domain (`/api/public/tenant`), which reveals only whether a domain is a
+  serviceable tenant.
 - PKCE is on between the app and the tenant realm; it is not enabled on the tenant-realm-to-master or master-to-Google legs.
 - Master keeps a record for a real tenant's account sent to the wrong tenant's realm. The realm's `email_verified` flag stays false
   (the gate uses Google's own value, carried separately).

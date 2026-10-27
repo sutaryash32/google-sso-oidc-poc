@@ -25,8 +25,9 @@ master (its own tenant owns that person) and refused by that realm's gate, so ma
 longer validates one issuer. It trusts the `issuer` of each tenant in the registry (keys from `<issuer>/protocol/openid-connect/certs`),
 contacts no other issuer, and accepts a realm's tokens only for the tenant bound to that issuer: the `tenant_id` claim is written by
 whoever administers the realm, so a realm that claims another tenant's id gets `403 issuer_mismatch`. The legacy single issuer
-(`TENANT_ISSUER`) remains optional. Not yet done: the frontend is fixed to one realm (a tenant-selecting login is a UI task),
-and the tenant claims in the app token are still realm constants rather than being derived from the issuer.
+(`TENANT_ISSUER`) remains optional. The sign-in page chooses the tenant by the organization's domain (`GET /api/public/tenant?domain=`, which answers the
+realm name or a uniform 404). Not yet done: an API that creates a tenant (the realm, gates and registry entry are made by
+`setup-tenant.mjs` and `tenant.mjs`), and the tenant claims in the app token are still realm constants rather than derived from the issuer.
 
 Keycloak stays at 24.0.3 (no feature here needs a newer one). Items marked **[verify]** are Keycloak behaviours I have not
 yet run in this chain.

@@ -8,8 +8,12 @@ the identity and the user's Google groups, all read from the backend (`localhost
   The page shows `Tenant`, `Identity provider` (`google`) and the realm role from the token the realm issued.
 - **Realm and hint are configurable** (`src/keycloak.js`): `VITE_KC_REALM` (default `yserious`) and `VITE_KC_IDP_HINT` (default
   `google-hub`). The earlier single-realm login is `VITE_KC_REALM=google-oidc-poc` with `VITE_KC_IDP_HINT=google-oidc`.
-- **One realm per build:** the app is fixed to a single tenant realm. A login that chooses the tenant (by sign-in page, URL or email
-  domain) is not built yet.
+- **Choosing the tenant, in one step:** the sign-in card asks for a **work email or organization domain** (`you@neelias.com` or
+  `neelias.com`) and one **Continue** button. The page asks the backend (`GET /api/public/tenant?domain=`, unauthenticated, answers the
+  realm name or the same 404 for anything that is not a serviceable tenant), remembers the realm in this browser, reloads against it and
+  goes straight to Google. Next time the card shows one button, **Continue with Google**, for the remembered organization, with a
+  "Not <organization>? Use a different organization" link. `?tenant=<realm>` in the URL does the same without the lookup. Setting
+  `VITE_KC_REALM` fixes the realm: the card then just says the organization is fixed by configuration.
 - **Sign out:** federated; the tenant realm's session and master's both end.
 
 ```powershell

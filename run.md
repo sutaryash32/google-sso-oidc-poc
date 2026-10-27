@@ -36,6 +36,11 @@ The login is **hub-and-spoke**: the app signs in to the tenant's own realm (`yse
 4. Open **http://localhost:5173** and click **Sign in with Google Workspace**. You should see your tenant
    (`yserious.com (t-yserious)`), your identity (identity provider `google`) and your Google groups.
 
+To sign in to **another tenant**, open "Sign in to a different organization" on the card, type the organization's domain (for example
+`neelias.com`) and click Continue: the page finds that tenant's realm and signs you in to it. The registered tenants are the ones in
+`google-oidc-poc-keycloak/tenant-registry.json` (`node scripts\tenant.mjs list`). While the Google consent screen is in *Testing* mode,
+each account you try must be listed as a test user there.
+
 If the page shows an error about an outdated session, click **Sign out and try again**, then sign in again.
 
 ### Stopping

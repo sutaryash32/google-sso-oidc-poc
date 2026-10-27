@@ -109,4 +109,4 @@ The hub-and-spoke design is working end to end with a real Google Workspace iden
 Google's identity is brokered through one shared provider, and the API validates a token issued by the tenant's own realm. Two gates keep
 tenants apart, and each tenant's issuer is bound to that tenant alone. The design is the same shape as our Azure SSO, so a new customer is
 a script run and a registry entry, with no change in Google Cloud. Open items before production: the foreign-organization test with real
-Google, domain-ownership verification for new tenants, roles and permissions (only tenant isolation exists today), and a tenant-selecting login.
+Google, domain-ownership verification for new tenants, roles and permissions (only tenant isolation exists today), and an API for creating tenants (today a script run).

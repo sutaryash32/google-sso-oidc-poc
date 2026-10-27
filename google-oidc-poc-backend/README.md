@@ -18,6 +18,11 @@ own tenant, and scopes all data to the caller's tenant. Package `com.secufusion.
    (`FORCE`, non-owner role) enforces it. The person key is `(tenant, provider, provider subject)` (`idp_sub`, Google's `sub`),
    never the Keycloak user id.
 
+**Public lookup for the sign-in page** (`PublicTenantController`): `GET /api/public/tenant?domain=acme.com` answers `{"realm":"acme"}` for
+a tenant that owns that domain, is active, has SSO on and has a realm; everything else (unknown domain, suspended, SSO off, no realm,
+ambiguous) is the same `404 {"error":"unknown_tenant"}`, so it does not reveal tenant state. It is unauthenticated and returns the realm
+name only.
+
 Groups (`/api/users/{email}/groups`): read on demand from the Google Directory API by impersonating the tenant's
 `groupsDelegatedAdmin` (from the registry) with one service account (domain-wide delegation). The email must be the caller's own and the
 admin must belong to the tenant's domains. Authorities in the token are empty: roles are not implemented.

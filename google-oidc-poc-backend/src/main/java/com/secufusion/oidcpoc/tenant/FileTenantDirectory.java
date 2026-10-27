@@ -85,6 +85,25 @@ public class FileTenantDirectory implements TenantDirectory {
         return Optional.ofNullable(key == null ? null : byIssuer.get(key));
     }
 
+    @Override
+    public Optional<TenantInfo> findByDomain(String domain) {
+        reloadIfChanged();
+        if (!snapshotIsCurrent() || domain == null) {
+            return Optional.empty();
+        }
+        String wanted = domain.trim().toLowerCase(Locale.ROOT);
+        TenantInfo found = null;
+        for (TenantInfo t : byId.values()) {
+            if (t.domains().contains(wanted)) {
+                if (found != null) {
+                    return Optional.empty(); // two tenants claim it: ambiguous, so none
+                }
+                found = t;
+            }
+        }
+        return Optional.ofNullable(found);
+    }
+
     /** True while the snapshot is known to match the file (see the failure policy above). */
     private boolean snapshotIsCurrent() {
         long last = lastKnownCurrentMillis;
